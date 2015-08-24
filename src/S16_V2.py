@@ -29,11 +29,14 @@ The previous pipeline worked as follows:
 
 
 TODO: 
-
-- This should really use a pipeline framework like bpipe and serves
+- Replace BLAST with Graphmap.
+- Every step after the first BLAST is either redundant, inefficient or likely to do the wrong thing. Replace fully.
+- Both the above need to check that seq id of a match is above the given taxonomic level
+- Use a pipeline framework like bpipe and serves
   only as a stop-gap.
 - Add decont step
 - Add downsampling option
+
 """
 
 
@@ -226,6 +229,21 @@ def parse_best_blast_hit(best_hit_file):
     return query_to_hit
 
 
+def parse_graphmap(bam):
+    """FIXME
+    """
+    
+    query_to_hit = dict()
+    cmd = ['samtools', 'view', bam]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)#, stderr=subprocess.STDOUT)
+    #works in python 3.0+
+    #for line in proc.stdout:
+    for line in iter(proc.stdout.readline,''):
+        ls = line.rstrip().split("\t")
+        query_to_hit[ls[0]] = ls[2]
+    return query_to_hit
+
+
 def read_greengenes_taxonomy(gg_tax_file):
     """returns greengenes taxonomy with OTU as key (string) and tax
     implemented as OrderedDict() as value
@@ -383,7 +401,7 @@ def main():
             cmd = [CONF['fastqc'], "--nogroup", "--quiet",
                    "--threads", str(args.num_cores), f]
             (stdout, stderr) = run_cmd(cmd, log_stdout=log_fh, log_stderr=log_fh)
-
+        # make sure we're dealing with sanger data
         touch_completed(compl_file)
 
     
@@ -479,7 +497,10 @@ def main():
     #
     # FIXME this is slow. why not use graphmap. also assigns simply
     # best hit, so no need to infer it like for blast
-    # 
+    # from 0.2.2-dev-604a386 onwards the trailing deletion problem is fixed:
+    # https://github.com/isovic/graphmap/issues/7
+    # ~/local/src/graphmap.git/bin/Linux-x64/graphmap -x  illumina -t str(args.num_cores) -r CONF['greengenes']  -d emirge_primer_trimmed_fa | samtools view -bS - | samtools sort - emirge_outprimer_trimmed_gg_13_5_99_otus_dev-604a386
+    #
     stage = "blast-against-greengenes"
     compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
     if os.path.exists(compl_file):
@@ -495,8 +516,7 @@ def main():
         
     # best blast hit
     #
-    # FIXME uses unreadable bash script
-    # can't we just take the first hit?
+    # FIXME uses unreadable bash script. can't we just take the first hit?
     #
     stage = "best-blast-hit"
     compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
@@ -511,31 +531,31 @@ def main():
         touch_completed(compl_file)
 
 
-    #stage  = "abundance-inference"
-    #compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
-    #if os.path.exists(compl_file):
-    #    LOG.info("Skipping stage {}".format(stage))
-    #
-    #else:
-    #    assert not os.path.exists(emirge_abundance_out)
-    #    with open(emirge_out_fa) as fh_in, open(emirge_abundance_out, 'w') as fh_out:
-    #        for line in fh_in:
-    #            if not line.startswith(">"):
-    #                continue
-    #            ls = line.strip().split()
-    #            fh_out.write("{}\t{}\n".format(ls[0], ls[3].replace("NormPrior=", "")))
-    #            
-    #    touch_completed(compl_file)
-
+    # FIXME: unncessary step 
+    stage  = "abundance-inference"
+    compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
+    if os.path.exists(compl_file):
+        LOG.info("Skipping stage {}".format(stage))
     
-    # FIXME
-    # graphmap  -x  illumina -t 2 -r /mnt/genomeDB/misc/greengenes.secondgenome.com/downloads/13_5/gg_13_5_otus/rep_set/99_otus.fasta  -d schmock/emirge_outprimer_trimmed.fa | samtools view -bS - | samtools sort - schmock/emirge_outprimer_trimmed_gg_13_5_99_otus
-    # all start with 50bp deletion? samtools view emirge_outprimer_trimmed_gg_13_5_99_otus.bam
+    else:
+        assert not os.path.exists(emirge_abundance_out)
+        with open(emirge_out_fa) as fh_in, open(emirge_abundance_out, 'w') as fh_out:
+            for line in fh_in:
+                if not line.startswith(">"):
+                    continue
+                ls = line.strip().split()
+                fh_out.write("{}\t{}\n".format(ls[0], ls[3].replace("NormPrior=", "")))
+                
+        touch_completed(compl_file)
+
         
     LOG.info("Reading taxonomy from {}".format(CONF['greengenes-taxonomy']))
     gg_tax = read_greengenes_taxonomy(CONF['greengenes-taxonomy'])
     query_to_hit = parse_best_blast_hit(blast_gg_best)
+    # or
+    #query_to_hit = parse_graphmap("schmock/graphmap/emirge_outprimer_trimmed_gg_13_5_99_otus_dev-604a386.bam")
     LOG.info("Assigning taxonomy".format())
+
     with open(emirge_primer_trimmed_fa) as fh:
         for (s_id, s_seq) in fasta_iter(fh):
             # id's look as follows:
