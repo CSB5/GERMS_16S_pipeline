@@ -1,8 +1,10 @@
+#!/mnt/software/unstowable/anaconda/envs/pysam-0.8.2/bin/python
 #!/usr/bin/env python
 """Adds pairwise identity tag (matches/readlength) to BAM file
 
 TODO:
 - add tests
+
 - use argparse
 - allow user defined tag as well as overwriting of tag
 """
@@ -10,6 +12,7 @@ TODO:
 
 import sys
 import os
+
 
 
 import pysam

@@ -6,37 +6,19 @@ EMIRGE (Miller et al., 2011, PMID 21595876) for reconstructing the
 sequences and BLAST + Greengenes for classification
 
 This pipelines works as follows:
-- Concat files if split, remove Q2 reads from 3' (as in original
-  EMIRGE paper), check paired end read name consistency
-  (NotImplemented: optionally downsample)
+- If necesssary, concat split fastq files, remove Q2 bases from 3', check paired end read name consistency
 - Run FastQC
 - Run EMIRGE or EMIRGE amplicon
 - Trim primers
-- Blast against Greengenes
-- Infer best Blasthit + abundance and classification
+- Infer taxonomy from best hit against Greengenes
+- Compile tables
 
-The previous pipeline worked as follows:
-1. Check order of PE reads
-2. Downsample
-3. FastQC
-4. Filter 3' Q2
-5. Emirge
-6. Remame 
-7. Trim primers
-8. Blast against Greengenes
-9. Infer best Blasthit + abundance and classification
-10. rename/reorg.cleanup
-
-
-TODO: 
-- Replace BLAST with Graphmap.
-- Every step after the first BLAST is either redundant, inefficient or likely to do the wrong thing. Replace fully.
-- Both the above need to check that seq id of a match is above the given taxonomic level
+TODO:
+- BLAST vs Graphmap
 - Use a pipeline framework like bpipe and serves
   only as a stop-gap.
 - Add decont step
 - Add downsampling option
-
 """
 
 
@@ -52,6 +34,7 @@ import datetime
 import shutil
 import glob
 from collections import OrderedDict
+from collections import namedtuple
 import csv
 
 try:
@@ -61,9 +44,14 @@ except ImportError:
     # python 2
     from itertools import izip_longest as zip_longest
 
-#--- project specific imports
+
+#import pysam
 #
-#/
+#PYSAM_VERSION = [int(x) for x in pysam.__version__.split(".")]
+#assert PYSAM_VERSION >= [0, 8, 0]
+
+IDENT_TAG = 'Xi'
+
 
 __author__ = "Andreas Wilm"
 __version__ = "2.0.0a"
@@ -82,25 +70,31 @@ logging.basicConfig(level=logging.WARN,
 CONF = dict()
 CONF['famas'] = "/mnt/software/stow/famas-0.0.7/bin/famas"
 CONF['fastqc'] = "/mnt/software/stow/FastQC-0.10.1/bin/fastqc"
-CONF['emirge'] = "/mnt/software/stow/emirge-v0.60-15-g0ddae1c-anaconda/bin/emirge.py"
-CONF['emirge-amplicon'] = "/mnt/software/stow/emirge-v0.60-15-g0ddae1c-anaconda/bin/emirge_amplicon.py"
-CONF['emirge-rename'] = '/mnt/software/bin/emirge_rename_fasta.py'
+#CONF['emirge'] = "/mnt/software/stow/emirge-v0.60-15-g0ddae1c-anaconda/bin/emirge.py"
+CONF['emirge'] = "/mnt/software/stow/emirge-v0.60-15-g0ddae1c-wilma/bin/emirge.py"
+CONF['emirge-amplicon'] = os.path.join(os.path.dirname(CONF['emirge']), 'emirge_amplicon.py')
+CONF['emirge-rename'] = os.path.join(os.path.dirname(CONF['emirge']),'emirge_rename_fasta.py')
 #CONF['emirge-fasta'] = '/mnt/software/unstowable/16S_pipeline/SSU_candidate_db.fasta'
 CONF['emirge-fasta'] = '/mnt/genomeDB/misc/softwareDB/emirge/SSU_candidate_db.fasta'
 CONF['emirge-fasta-bowtie'] = CONF['emirge-fasta'].replace('.fasta', '')
-CONF['primer-trimmer'] = os.path.join(os.path.dirname(sys.argv[0]), "primer_trimmer.py")
+CONF['primer-trimmer'] = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), "primer_trimmer.py"))
 #CONF['greengenes'] = '/mnt/genomeDB/misc/greengenes.secondgenome.com/downloads/13_5/gg_13_5.fasta'
-CONF['greengenes'] = '/mnt/genomeDB/misc/greengenes.secondgenome.com/downloads/13_5/gg_13_5_otus/rep_set/99_otus.fasta'
+#CONF['greengenes'] = '/mnt/genomeDB/misc/greengenes.secondgenome.com/downloads/13_5/gg_13_5_otus/rep_set/99_otus.fasta'
+CONF['greengenes'] = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), "../greengenes/99_otus.fasta"))
 CONF['greengenes-taxonomy'] = '/mnt/genomeDB/misc/greengenes.secondgenome.com/downloads/13_5/gg_13_5_otus/taxonomy/99_otu_taxonomy.txt'
+CONF['ident_to_bam'] = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), "ident_to_bam.py"))
 CONF['blastn'] = '/mnt/software/stow/ncbi-blast-2.2.28+/bin/blastn'
-CONF['best-blast-hit'] = os.path.join(os.path.dirname(sys.argv[0]), "best_hit_per_query_from_multi_blast.sh")
+CONF['graphmap'] = '/mnt/software/stow/graphmap-0.2.2-dev-604a386/bin/graphmap'
+CONF['best-blast-hit'] = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), "best_hit_per_query_from_multi_blast.sh"))
 
 
+
+BestHit = namedtuple('BestHit', ['seqid', 'pwid', 'tax'])
 
 
 def timestamp():
     return datetime.datetime.now().isoformat()
-    
+
 
 def touch_completed(f):
     """FIXME
@@ -112,10 +106,10 @@ def touch_completed(f):
 
 def fasta_iter(fasta_stream):
     """Brend Pedersen:  https://www.biostars.org/p/710/
-    
+
     Given a fasta file. yield tuples of header, sequence
     """
-    
+
     # ditch the boolean (x[0]) and just keep the header or sequence since
     # we know they alternate.
     faiter = (x[1] for x in groupby(fasta_stream, lambda line: line[0] == ">"))
@@ -219,28 +213,38 @@ def read_blast_csv(blast_csv):
 def parse_best_blast_hit(best_hit_file):
     """using our own format
     """
-    
+
     query_to_hit = dict()
     with open(best_hit_file) as fh:
         for line in fh:
-            query, hit = line.split(" ")[:2]
+            if line.startswith("#"):
+                continue
+            query, hit, pwid = line.split(" ")[:3]
+            pwid = abs(float(pwid))
             assert not query_to_hit.has_key(query)
-            query_to_hit[query] = hit
+            query_to_hit[query] = BestHit(seqid=hit, pwid=pwid, tax=None)
     return query_to_hit
 
 
-def parse_graphmap(bam):
+def parse_graphmap(bam, ident_tag=IDENT_TAG):
     """FIXME
     """
-    
+
     query_to_hit = dict()
-    cmd = ['samtools', 'view', bam]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)#, stderr=subprocess.STDOUT)
+    #cmd = ['samtools', 'view', bam]
+    #proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)#, stderr=subprocess.STDOUT)
     #works in python 3.0+
     #for line in proc.stdout:
-    for line in iter(proc.stdout.readline,''):
-        ls = line.rstrip().split("\t")
-        query_to_hit[ls[0]] = ls[2]
+    #for line in iter(proc.stdout.readline,''):
+    #    ls = line.rstrip().split("\t")
+    #    query_to_hit[ls[0]] = ls[2]
+    #return query_to_hit
+    samfh = pysam.Samfile(bam)
+    for r in samfh:
+        pwid = round(r.get_tag(ident_tag), 1)
+        ref = samfh.getrname(r.tid)
+        query_to_hit[r.query_name] = BestHit(seqid=ref, pwid=pwid, tax=None)
+    samfh.close()
     return query_to_hit
 
 
@@ -284,6 +288,8 @@ def main():
                         help='Output directory (may not exist, unless using --continue)')
     parser.add_argument('-i', '--ins-len', type=int, required=True,
                         help='Mean insert size')
+    parser.add_argument('-m', '--max-read-len', type=int, required=True,
+                        help='Max. read length')
 
     default = 40
     parser.add_argument('--ins-stdev', type=int, default=default,
@@ -296,14 +302,14 @@ def main():
     parser.add_argument('--verbose', action="store_true",
                         help='Be verbose')
     parser.add_argument('--no-fastq-sort', action="store_true",
-                        help="Don't sort FastQ but use given order in forward and reverse list of reads")
+                        help="Don't sort FastQ but use given order in forward and reverse list of reads (careful now!)")
     parser.add_argument('--phred64', action="store_true",
                         help='Assume Illumina 1.3-1.7 quality encoding')
     parser.add_argument('--debug', action="store_true",
                         help='Enable debugging output')
     parser.add_argument('--continue', action="store_true", dest="continue_run",
                         help='Continue interrupted run')
-    #parser.add_argument('--max-num-reads', default=500000, 
+    #parser.add_argument('--max-num-reads', default=500000,
     #                    help='Downsample to this number of reads')
     args = parser.parse_args()
 
@@ -342,259 +348,138 @@ def main():
                 sys.exit(1)
 
 
-    log_file = os.path.join(args.outdir, "{}.log".format(
-            os.path.basename(sys.argv[0])))
-    log_fh = open(log_file, 'a')
-    # log_fh = sys.stdout
-    log_fh.write("Starting {}: {}\n".format(timestamp(), sys.argv))
-
-
-    # FIXME move below to CONF
-    concat_filtered_fq1 = os.path.join(args.outdir, "concat_filtered_1.fastq.gz")
-    concat_filtered_fq2 = os.path.join(args.outdir, "concat_filtered_2.fastq.gz")
-    emirge_outdir = os.path.join(args.outdir, "emirge")
-    emirge_out_fa = os.path.join(args.outdir, "emirge_out.fa")
-    emirge_abundance_out = os.path.join(args.outdir, "abundance.txt")
+    # relative to args.outdir
+    emirge_outdir = "emirge"
+    emirge_out_fa = "emirge_out.fa"
     emirge_primer_trimmed_fa = emirge_out_fa.replace(".fa", "primer_trimmed.fa")
-    blast_gg_out = os.path.join(args.outdir, "blast-greengenes.csv")
-    blast_gg_best = os.path.join(args.outdir, "blast-greengenes-best.txt")
+    gg_out =  "blast-greengenes.csv"
+    gg_best = "blast-greengenes-best.txt"
+    raw_table = "raw-table.csv"
 
 
-    # FIXME make below functions or create makefile
+    snakemake_file = os.path.join(args.outdir, "snake.make")
+    # FIXME what if exists?
+    snakemake_fh = open(snakemake_file, 'w')
+    snakemake_fh.write('shell.prefix("set -o pipefail; ")\n')
+    snakemake_fh.write('\n')
 
 
-    # concat fastq, filter, merge with famas
-    #
-    stage = "concat-filter-and-merge-fasta"
-    compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
-    if os.path.exists(compl_file):
-        LOG.info("Skipping stage {}".format(stage))
+    samples = []
+    fqs1 = [os.path.abspath(f) for f in args.fq1]
+    fqs2 = [os.path.abspath(f) for f in args.fq2]
+    if not args.no_fastq_sort:
+        fqs1 = sorted(fqs1)
+        fqs2 = sorted(fqs2)
+    for i, (fq1, fq2) in enumerate(zip(fqs1, fqs2)):
+        os.symlink(os.path.abspath(fq1), os.path.join(args.outdir, "{}_R1.fastq.gz".format(i+1)))
+        os.symlink(os.path.abspath(fq2), os.path.join(args.outdir, "{}_R2.fastq.gz".format(i+1)))
+        samples.append("{}_".format(i+1))
 
+
+    snakemake_fh.write("SAMPLES = ['{}']\n".format("' ,'".join(samples)))
+    snakemake_fh.write("\n")
+
+    snakemake_fh.write("# must be first rule\n")
+    snakemake_fh.write("\nrule final:\n")
+    #snakemake_fh.write("  input: 'raw_table.csv'\n")
+    snakemake_fh.write("  input: '{}'\n".format(gg_out))
+    snakemake_fh.write("  message: 'This is the end. My only friend, the end'\n")
+    snakemake_fh.write("\n")
+
+
+    snakemake_fh.write("\nrule filter_fastq:\n")
+    snakemake_fh.write("  input: fq1='{sample}R1.fastq.gz', fq2='{sample}R2.fastq.gz'\n")
+    snakemake_fh.write("  output: fq1=temp('{sample}R1.flt.fastq.gz'), fq2=temp('{sample}R2.flt.fastq.gz')\n")
+    if args.phred64:
+        extra_arg = "--phred64"
     else:
-        if args.no_fastq_sort:
-            fqs1 = sorted(args.fq1)
-            fqs2 = sorted(args.fq2)
-        else:
-            fqs1 = args.fq1
-            fqs2 = args.fq2
-    
-        for fq1, fq2 in zip_longest(fqs1, fqs2):
-            cmd = [CONF['famas'], "-i", fq1, "-j", fq2]
-            if args.phred64:
-                cmd.extend(["--phred64"])
-            cmd.extend(["-o", concat_filtered_fq1, "-p", concat_filtered_fq2])
-            cmd.extend(["-q", "3", "-l", "60", "--append"])
-            (stdout, stderr) = run_cmd(cmd, log_stdout=log_fh, log_stderr=log_fh)
+        extra_arg = ""
+    #snakemake_fh.write("# zcat into anonymous named pipes to stream into famas for filtering and merging\n")
+    #snakemake_fh.write("  shell: '{} -i <(zcat {{input.fqs1}}) -j <(zcat {{input.fqs2}}) -o {{output.fq1}} -p {{output.fq2}} -q 3 -l 60 {} --append'\n".format(CONF['famas'], extra_arg))
+    snakemake_fh.write("  shell: '{} -i {{input.fq1}} -j {{input.fq2}} -o {{output.fq1}} -p {{output.fq2}} -q 3 -l 60 {} --append'\n".format(CONF['famas'], extra_arg))
+    snakemake_fh.write("\n")
 
-        touch_completed(compl_file)
 
-            
-    # plain fastqc
-    #
-    stage = "fastqc"
-    compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
-    if os.path.exists(compl_file):
-        LOG.info("Skipping stage {}".format(stage))
 
-    else:
-        for f in [concat_filtered_fq1, concat_filtered_fq2]:
-            cmd = [CONF['fastqc'], "--nogroup", "--quiet",
-                   "--threads", str(args.num_cores), f]
-            (stdout, stderr) = run_cmd(cmd, log_stdout=log_fh, log_stderr=log_fh)
-        # make sure we're dealing with sanger data
-        touch_completed(compl_file)
+    snakemake_fh.write("\nrule concat_fastq:\n")
+    flt_fq1 = "R1.flt.fastq.gz"
+    flt_fq2 = "R2.flt.fastq"# 2nd emirge input file has to be nonzipped
+    snakemake_fh.write("  input: fqs1=expand('{sample}R1.flt.fastq.gz', sample=SAMPLES), fqs2=expand('{sample}R2.flt.fastq.gz', sample=SAMPLES)\n")
+    snakemake_fh.write("  output: fq1=temp('{}'), fq2=temp('{}')\n".format(flt_fq1, flt_fq2))
+    #snakemake_fh.write("  message: ''\n")
+    snakemake_fh.write("  shell: 'zcat {input.fqs1} | gzip > {output.fq1} && zcat {input.fqs2} > {output.fq2}'\n")
+    snakemake_fh.write("\n")
 
-    
     # emirge
     #
-    stage = "emirge"
-    compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
-    if os.path.exists(compl_file):
-        LOG.info("Skipping stage {}".format(stage))
-
+    # this assumes we can't continue aborted emirge runs
+    #if os.path.exists(emirge_outdir):
+    #    shutil.rmtree(emirge_outdir)
+    snakemake_fh.write("\nrule emirge:\n")
+    snakemake_fh.write("  input: fq1=rules.concat_fastq.output.fq1, fq2=rules.concat_fastq.output.fq2\n")
+    snakemake_fh.write("  threads: {}\n".format(args.num_cores))
+    snakemake_fh.write("  output: 'emirge_succeeded'\n")# fake
+    if args.no_amplicon:
+        cmd = [CONF['emirge']]
     else:
-        # this assumes we can't continue aborted emirge runs
-        if os.path.exists(emirge_outdir):
-            shutil.rmtree(emirge_outdir)
-
-        max_read_len = get_max_readlen_from_pair(
-            concat_filtered_fq1, concat_filtered_fq2)
-
-        # 2nd fastq may not be gzipped
-        concat_filtered_fq2_unzipped = concat_filtered_fq2.replace(".gz", "")
-        with open(concat_filtered_fq2_unzipped, 'w') as fh:
-            subprocess.call(["gzip", "-dc", concat_filtered_fq2], stdout=fh)
-
-        if args.no_amplicon:
-            emirge = CONF['emirge']        
-        else:
-            emirge = CONF['emirge-amplicon']
-
-        cmd = [emirge, "-1", concat_filtered_fq1, "-2", concat_filtered_fq2_unzipped]
-        cmd.extend(["-f", CONF['emirge-fasta'], "-b", CONF['emirge-fasta-bowtie']])
-        cmd.extend(["-l", str(max_read_len), "-i", str(args.ins_len), "-s", str(args.ins_stdev)])
-        if not args.phred64:
-            cmd.extend(["--phred33"])
-        cmd.extend(["-a", str(args.num_cores), emirge_outdir])
-        LOG.warn("One iteration only")
-        cmd.extend(["-n", "1"])
-        (stdout, stderr) = run_cmd(cmd, log_stdout=log_fh, log_stderr=log_fh)
-    
-        # remove temporarily unzipped 2nd fastq file
-        os.unlink(concat_filtered_fq2_unzipped)
-
-        # clean BAMs from emirge
-        for root, directories, filenames in os.walk(emirge_outdir):
-            for filename in filenames:
-                if filename.endswith(".bam"):
-                    os.unlink(os.path.join(root, filename))
-
-        touch_completed(compl_file)
+        cmd = [CONF['emirge-amplicon']]
+    cmd.extend(["-l", str(args.max_read_len), "-i", str(args.ins_len), "-s", str(args.ins_stdev)])
+    if not args.phred64:
+        cmd.extend(["--phred33"])
+    sys.stderr.write("DEBUG only one iteration\n"); cmd.extend(["-n 1"])
+    cmd.extend(["-a", str(args.num_cores), emirge_outdir])
+    cmd.extend(["-f", CONF['emirge-fasta'], "-b", CONF['emirge-fasta-bowtie']])
+    snakemake_fh.write("  shell:\n")
+    snakemake_fh.write("    'test -d {} && rm -rf {}; {} -1 {{input.fq1}} -2 {{input.fq2}} && touch {{output}}'\n".format(
+                emirge_outdir, emirge_outdir, ' '.join(cmd)))
+    snakemake_fh.write("\n")
 
 
-    # rename emirge output from last iteration 
-    #
-    stage = "emirge-rename"
-    compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
-    if os.path.exists(compl_file):
-        LOG.info("Skipping stage {}".format(stage))
-
-    else:
-        # FIXME iteration hardcoded
-        last_iter = sorted(glob.glob(os.path.join(emirge_outdir, "iter.*")))[-1]
-        LOG.info("Using EMIRGE fasta from {}".format(last_iter))
-        cmd = [CONF['emirge-rename'], last_iter]
-        with open(emirge_out_fa, 'w') as fh:
-            subprocess.call(cmd, stdout=fh)
-
-        touch_completed(compl_file)
+    snakemake_fh.write("\nrule emirge_rename:\n")
+    snakemake_fh.write("  input: rules.emirge.output\n")
+    snakemake_fh.write("  output: '{}'\n".format(emirge_out_fa))
+    snakemake_fh.write('  run:\n')
+    snakemake_fh.write('    import glob\n')
+    snakemake_fh.write('    import subprocess\n')
+    snakemake_fh.write('    last_iter = sorted(glob.glob(os.path.join("{}", "iter.*")))[-1]\n'.format(emirge_outdir))
+    snakemake_fh.write('    cmd = ["{}", last_iter]\n'.format(CONF["emirge-rename"]));
+    snakemake_fh.write('    with open(output, "w") as fh:\n')
+    snakemake_fh.write('        subprocess.call(cmd, stdout=fh)\n')
+    snakemake_fh.write("\n")
 
 
-    # trim primers
-    #
-    # preserves abundances, but might kick out some sequences due to
-    # length restrictions
-    #
-    stage = "primer-trimming"
-    compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
-    if os.path.exists(compl_file):
-        LOG.info("Skipping stage {}".format(stage))
-
-    else:
-        # FIXME hardcoded params
-        cmd = [CONF['primer-trimmer'], "-i", emirge_out_fa, "-o", emirge_primer_trimmed_fa,
-               "--minlen", "200", "--maxlen", "1400"]
-        (stdout, stderr) = run_cmd(cmd, log_stdout=log_fh, log_stderr=log_fh)
-
-        touch_completed(compl_file)
+    snakemake_fh.write("\nrule emirge_trim_primer:\n")
+    snakemake_fh.write("  input: rules.emirge_rename.output\n")
+    snakemake_fh.write("  output: '{}'\n".format(emirge_primer_trimmed_fa))
+    cmd = [CONF['primer-trimmer'], "-i", "{input}", "-o", "{output}",
+           "--minlen", "200", "--maxlen", "1400"]
+    snakemake_fh.write("  shell: '{}'\n".format(' '.join(cmd)))
+    snakemake_fh.write("\n")
 
 
-    # FIXME: we could in theory also use the EMIRGE/ARB markup for direct taxonomy assignment
-    # Never benchmarked though and not sure how assignment happens after split within EMIRGE.
-    # Other option is to use the GG database directly (but split problem applies here as well)
-
-    # blast against greengenes
-    #
-    # FIXME this is slow. why not use graphmap. also assigns simply
-    # best hit, so no need to infer it like for blast
-    # from 0.2.2-dev-604a386 onwards the trailing deletion problem is fixed:
-    # https://github.com/isovic/graphmap/issues/7
-    # ~/local/src/graphmap.git/bin/Linux-x64/graphmap -x  illumina -t str(args.num_cores) -r CONF['greengenes']  -d emirge_primer_trimmed_fa | samtools view -bS - | samtools sort - emirge_outprimer_trimmed_gg_13_5_99_otus_dev-604a386
-    #
-    stage = "blast-against-greengenes"
-    compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
-    if os.path.exists(compl_file):
-        LOG.info("Skipping stage {}".format(stage))
-
-    else:
-        cmd = [CONF['blastn'], "-db", CONF['greengenes'], "-query", emirge_primer_trimmed_fa,
-               "-outfmt", "7", "-out", blast_gg_out, "-num_threads", str(args.num_cores)]
-        (stdout, stderr) = run_cmd(cmd, log_stdout=log_fh, log_stderr=log_fh)
-
-        touch_completed(compl_file)
-
-        
-    # best blast hit
-    #
-    # FIXME uses unreadable bash script. can't we just take the first hit?
-    #
-    stage = "best-blast-hit"
-    compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
-    if os.path.exists(compl_file):
-        LOG.info("Skipping stage {}".format(stage))
-
-    else:
-        cmd = [CONF['best-blast-hit'], blast_gg_out]
-        with open(blast_gg_best, 'w') as fh:
-            subprocess.call(cmd, stdout=fh)
-
-        touch_completed(compl_file)
+    snakemake_fh.write("\nrule emirge_vs_gg:\n")
+    snakemake_fh.write("  input: rules.emirge_trim_primer.output, ref='{}'\n".format(CONF['greengenes']))
+    snakemake_fh.write("  output: '{}'\n".format(gg_out))
+    snakemake_fh.write("  threads: {}\n".format(args.num_cores))
+    cmd = "{} -x illumina -t {{threads}} -r {{input.ref}} -d {{input}} | {} - {{output}} {{input.ref}}".format(
+        CONF['graphmap'], CONF['ident_to_bam'])
+    snakemake_fh.write("  shell: '{}'\n".format(cmd))
+    sys.exit(1)
 
 
-    # FIXME: unncessary step 
-    stage  = "abundance-inference"
-    compl_file = os.path.join(args.outdir, ".{}.completed".format(stage))
-    if os.path.exists(compl_file):
-        LOG.info("Skipping stage {}".format(stage))
-    
-    else:
-        assert not os.path.exists(emirge_abundance_out)
-        with open(emirge_out_fa) as fh_in, open(emirge_abundance_out, 'w') as fh_out:
-            for line in fh_in:
-                if not line.startswith(">"):
-                    continue
-                ls = line.strip().split()
-                fh_out.write("{}\t{}\n".format(ls[0], ls[3].replace("NormPrior=", "")))
-                
-        touch_completed(compl_file)
 
-        
-    LOG.info("Reading taxonomy from {}".format(CONF['greengenes-taxonomy']))
-    gg_tax = read_greengenes_taxonomy(CONF['greengenes-taxonomy'])
-    query_to_hit = parse_best_blast_hit(blast_gg_best)
-    # or
-    #query_to_hit = parse_graphmap("schmock/graphmap/emirge_outprimer_trimmed_gg_13_5_99_otus_dev-604a386.bam")
-    LOG.info("Assigning taxonomy".format())
+    sys.exit(0)
 
-    with open(emirge_primer_trimmed_fa) as fh:
-        for (s_id, s_seq) in fasta_iter(fh):
-            # id's look as follows:
-            # >47|AJ704791.1.1593 Prior=0.045024 Length=744 NormPrior=0.045018
-            s_id_split = s_id.split()
-            abundance = float(s_id_split[-1].replace("NormPrior=", ""))
-            s_id = s_id_split[0]
-            best_hit = query_to_hit.get(s_id, None)
-            # since blast was run against gg otus we can read from gg tax
-            if best_hit is not None:
-                tax = gg_tax.get(best_hit, None)
-            else:
-                tax = None
-            print "{}\t{}\t{}\t{}".format(s_id, best_hit, abundance, tax)
-
-
-    if log_fh != sys.stdout:
-        log_fh.close()
     LOG.fatal("Unfinished implementation")
     sys.exit(1)
+
 """
-    
-    OUT_CLASSIFN = OUTPUT + "/classification.txt"
-    CMD_GET_CLASSIFICATION = "python %s %s %s %s > %s"% (GET_CLASSIFICATION, OUT_BEST_HIT, CURRENT_GG, OUT_ABUN, OUT_CLASSIFN)
-    run_command(CMD_GET_CLASSIFICATION)
-    
-    #OUT_LOW_HITS = OUTPUT + "/Low_identity_hits.txt"
-    #OUT_FINAL_TABLE = OUTPUT + "/Final_classification_table.txt"
-    print "Step 10: Creating final tables"
-    
-    #CMD_GET_TABLE = "python %s %s %s %s"% (GET_TABLE, OUT_CLASSIFN, OUTPUT, OUTPUT + "/Results")
-    cmd_mv = "mv %s %s"% (OUT_CLASSIFN, OUTPUT + "/Analysis/")
-    run_command(cmd_mv)
-    CMD_GET_TABLE = "python %s %s %s"% (GET_TABLE, OUTPUT, OUTPUT + "/Results")
-    #print CMD_GET_TABLE
-    run_command(CMD_GET_TABLE)
-    print "Done"
-    """
-    
+  out: class/abundance
+  for all and
+  lowid==novel, if id below p-80,f-90,g-95,s-97
+  lowabd==rare, if abundance threshold 0.00005
+"""
+
 
 if __name__ == '__main__':
     LOG.warn("Test fastq split")
@@ -602,4 +487,4 @@ if __name__ == '__main__':
     LOG.warn("Dump config")
     LOG.warn("Create log")
     main()
-    
+
