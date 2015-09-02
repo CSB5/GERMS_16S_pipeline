@@ -66,8 +66,8 @@ if __name__ == "__main__":
 
     try:
         sam_in, sam_out, ref_fa = sys.argv[1:]
-    except IndexError:
-        sys.stderr.write("FATAL: Need input and output BAM (stdout supported)  as well as the (indexed) reference as (only) arguments\n")
+    except ValueError:
+        sys.stderr.write("FATAL: Need input and output BAM (stdout supported)  as well as the (indexed) reference as (only) arguments (but got {})\n".format(' '.join(sys.argv[1:])))
         sys.exit(1)
     assert not os.path.exists(sam_out)
 
