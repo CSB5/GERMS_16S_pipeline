@@ -67,7 +67,8 @@ CONFIG_FILE = "conf.json"
 CONF = dict()
 # databases and files
 CONF['EMIRGE_BASEDIR'] = "/mnt/software/stow/emirge-v0.60-15-g0ddae1c-wilma/bin/"
-CONF['SSU_FA'] = '/mnt/genomeDB/misc/softwareDB/emirge/SSU_candidate_db.fasta'
+#CONF['SSU_FA'] = '/mnt/genomeDB/misc/softwareDB/emirge/SSU_candidate_db.fasta'
+CONF['SSU_FA'] = '/mnt/projects/wilma/16s/S16_V2/ssu/SSU_candidate_db.p-knowlesi-spikein.fasta'
 CONF['SSU_DB'] = CONF['SSU_FA'].replace('.fasta', '')
 CONF['GG_REF'] = '/mnt/genomeDB/misc/greengenes.secondgenome.com/downloads/13_5/gg_13_5_otus/rep_set/99_otus.fasta'
 CONF['GG_REF'] = '/mnt/projects/wilma/16s/S16_V2/greengenes/99_otus.fasta'
@@ -82,6 +83,8 @@ CONF['IDENT_TO_BAM'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "ident_to_bam.py"))
 CONF['GRAPHMAP'] = '/mnt/software/stow/graphmap-0.2.2-dev-604a386/bin/graphmap'
 #CONF['BLASTN'] = '/mnt/software/stow/ncbi-blast-2.2.28+/bin/blastn'
+CONF['CONVERT_TABLE'] = os.path.abspath(
+    os.path.join(os.path.dirname(sys.argv[0]), "convert_table.py"))
 
 
 def main():
@@ -151,7 +154,6 @@ def main():
         if args.continue_run:
             LOG.fatal("Can't continue job that wasn't started yet")
             sys.exit(1)
-        os.mkdir(args.outdir)
 
     if args.fq1 == args.fq2:
         LOG.fatal("Paired-End FastQ files have identical names")
@@ -171,6 +173,7 @@ def main():
                 LOG.fatal("Non-gzipped FastQ files not supported")
                 sys.exit(1)
 
+    os.mkdir(args.outdir)
 
     samples = []
     fqs1 = [os.path.abspath(f) for f in args.fq1]
@@ -210,12 +213,13 @@ def main():
                 SNAKEMAKE_FILE, CONFIG_FILE))
         # FIXME max runtime should be defined per target in SNAKEMAKE_FILE
 
-        cmd = ['bash', snakemake_cluster_wrapper]
-        if args.no_run:
-            print("Not actually submitting job")
-            print("When ready run: {}".format(' '.join(cmd)))
-        else:
-            subprocess.check_output(cmd)
+    cmd = ['bash', snakemake_cluster_wrapper]
+    if args.no_run:
+        print("Not actually submitting job")
+        print("When ready run: {}".format(' '.join(cmd)))
+    else:
+        print("Running: {}".format(cmd))
+        subprocess.check_output(cmd)
                 
 
 if __name__ == '__main__':

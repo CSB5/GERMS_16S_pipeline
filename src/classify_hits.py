@@ -66,6 +66,12 @@ def parse_greengenes_taxonomy(gg_tax_file):
             assert not gg_tax.has_key(otu)
             gg_tax[otu] = OrderedDict([x.split("__") for x in tax_str.split("; ")])
             assert len(gg_tax[otu]) == 7
+
+            # Taxa with square brackets "are suggested, but not verified, taxonomies."
+            # https://groups.google.com/forum/#!topic/qiime-forum/WnhQiB5q9Hc
+            # We treat them as verified here
+            for k, v in gg_tax[otu].items():
+                gg_tax[otu][k] = v.translate(None, "[]")
     return gg_tax
 
 
