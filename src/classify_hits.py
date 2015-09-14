@@ -61,7 +61,7 @@ def parse_greengenes_taxonomy(gg_tax_file):
     with open(gg_tax_file) as fh:
         for line in fh:
             otu, tax_str = line.rstrip().split("\t")
-            assert otu.isdigit()
+            assert otu.isdigit()# doesn't work with spike-in
             # remove semicolon and split as key__value
             assert not gg_tax.has_key(otu)
             gg_tax[otu] = OrderedDict([x.split("__") for x in tax_str.split("; ")])
