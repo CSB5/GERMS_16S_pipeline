@@ -1,9 +1,9 @@
 # FIXME
-# - produce final table
 # - ensure usearch and bowtie are in PATH as well
 # - add cluster config rules per target e.g. params: runtime="4h" and use in cluster arg
-# - use log:
-# define max_num_threads to replace target specific threads
+# - add report
+
+from snakemake.utils import report
 
 # simulate a bash login shell, see https://bitbucket.org/johanneskoester/snakemake/wiki/FAQ
 shell.executable("/bin/bash")
@@ -19,28 +19,36 @@ EMIRGE_RENAME = config['EMIRGE_BASEDIR'] + '/' + 'emirge_rename_fasta.py'
 # must be first rule
 
 rule final:
-  input:   'convert_tables.succeeded'
+  input:   'convert_tables.succeeded', 'results/report.html'
   message: 'This is the end. My only friend, the end'
 
 
-rule filter_fastq:
+rule trim_fastq:
   input:  fq1='{sample}R1.fastq.gz', fq2='{sample}R2.fastq.gz'
-  output: fq1=temp('{sample}R1.flt.fastq.gz'), fq2=temp('{sample}R2.flt.fastq.gz')
+  output: fq1=temp('{sample}R1.trimmed.fastq.gz'), fq2=temp('{sample}R2.trimmed.fastq.gz')
   params: min3qual='3', minlen='60'
   shell:  '{config[FAMAS]} -i {input.fq1} -j {input.fq2} -o {output.fq1} -p {output.fq2} -q {params.min3qual} -l {params.minlen}'
 
 
 rule concat_fastq:
-  input:  fqs1=expand('{sample}R1.flt.fastq.gz', sample=config['SAMPLES']),
-          fqs2=expand('{sample}R2.flt.fastq.gz', sample=config['SAMPLES'])
-  output: fq1=temp('R1.flt.fastq.gz'), fq2=temp('R2.flt.fastq')
-  shell:  'zcat {input.fqs1} | gzip > {output.fq1} && zcat {input.fqs2} > {output.fq2}'
-  #output: fq1=temp('R1.flt.fastq.gz'), fq2=temp('R2.flt.fastq.gz')
+  input:  fqs1=expand('{sample}R1.trimmed.fastq.gz', sample=config['SAMPLES']),
+          fqs2=expand('{sample}R2.trimmed.fastq.gz', sample=config['SAMPLES'])
+  output: fq1=temp('R1.trimmed.fastq.gz'), fq2=temp('R2.trimmed.fastq.gz')
+  shell:  'zcat {input.fqs1} | gzip > {output.fq1} && zcat {input.fqs2} | gzip > {output.fq2}'
+  #output: fq1=temp('R1.trimmed.fastq.gz'), fq2=temp('R2.trimmed.fastq.gz')
   #shell:  'zcat {input.fqs1} | gzip > {output.fq1} && zcat {input.fqs2} | gzip > {output.fq2}'
 
 
+rule pre_filter:
+  input:    fq1=rules.concat_fastq.output.fq1, fq2=rules.concat_fastq.output.fq2
+  output:   fq1=temp('R1.trimmed.flt.fastq.gz'), fq2=temp('R2.trimmed.flt.fastq'), ratios='results/ratios.txt'
+  params:   ssu_fa=config['SSU_FA'], spikein_name=config['SPIKEIN-NAME']
+  threads:  8
+  shell:    '{config[BWA]} mem -t {threads} -k 30 -M {params.ssu_fa} {input.fq1} {input.fq2} | {config[PREFILTER]} -i - -1 {output.fq1} -2 {output.fq2} -s {params.spikein_name} > {output.ratios}'
+
+
 rule emirge:
-  input:     fq1=rules.concat_fastq.output.fq1, fq2=rules.concat_fastq.output.fq2
+  input:     fq1=rules.pre_filter.output.fq1, fq2=rules.pre_filter.output.fq2
   threads:   8
   output:    'emirge.succeeded'
   message:   'WARN: one iteration only!'
@@ -81,7 +89,7 @@ rule emirge_vs_gg:
 
 rule classify:
   input: query=rules.emirge_trim_primer.output, hits=rules.emirge_vs_gg.output, gg_tax=config['GG_TAX']
-  output: 'raw-table.txt'
+  output: 'results/raw-table.txt'
   message: 'classifying hits'
   shell: '{config[CLASSIFY_HITS]} -q {input.query} -i {input.hits} -t {input.gg_tax} -o {output}'
 
@@ -90,4 +98,24 @@ rule convert_tables:
   input:  rules.classify.output
   output: 'convert_tables.succeeded'
   message: 'converting raw table'
-  shell:  '{config[CONVERT_TABLE]} {input} result- && touch {output}'
+  shell:  '{config[CONVERT_TABLE]} {input} results/ && touch {output}'
+
+
+rule report:
+  input:  ratios=rules.pre_filter.output.ratios
+  output: html="results/report.html"
+  run:    report("""
+          ===================
+          16S Pipeline Report
+          ===================
+
+          Abundances for each taxonomic rank are listed in
+          <rank>-piechart.pdf and the corresponding values are listed
+          in <rank>-table.csv.
+
+          Abundances are scaled to 100% and are only based on
+          16S sequences. Unspecific products, spike-in
+          ({config['SPIKEIN-NAME']}) and 16S ratio are listed in:
+          ratios_.
+
+          """, output.html, metadata="Andreas WILM", **input)
