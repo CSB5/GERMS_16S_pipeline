@@ -113,18 +113,25 @@ def  main():
         fq2fh = open(args.fq2, 'w')
 
 
-    num_16S = num_spikein = num_unspecific = 0
+    counts = dict()
     for (r1, r2) in pairs_from_name_srtd_bam(samfh):
         if r1.is_unmapped and r2.is_unmapped:
-            num_unspecific += 1
+            k = 'Unspecific'
         elif args.spikein in [samfh.getrname(r1.tid), samfh.getrname(r2.tid)]:
-            num_spikein += 1
+            k = 'Spike-in'
         else:
-            num_16S += 1
+            k = '16S'
             write_read(fq1fh, r1)
             write_read(fq2fh, r2)
+        counts[k] = counts.get(k, 0) + 1
 
-    sys.stderr.write("FIXME #pairs", num_unspecific, num_spikein, num_16S)
+    counts_total = sum(counts.values())
+    if counts_total == 0:
+        sys.stderr.write("No read pairs encountered!\n")
+        sys.exit(1)
+    print "#type\trel.abundance"
+    for k, v in counts.items():
+        print "{}\t{}".format(k, v/float(counts_total))
 
     fq1fh.close()
     fq2fh.close()
