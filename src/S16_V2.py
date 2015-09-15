@@ -30,6 +30,7 @@ import copy
 import json
 import shutil
 import subprocess
+import getpass
 
 try:
     # python 3
@@ -70,11 +71,14 @@ CONF['EMIRGE_BASEDIR'] = "/mnt/software/stow/emirge-v0.60-15-g0ddae1c-wilma/bin/
 #CONF['SSU_FA'] = '/mnt/genomeDB/misc/softwareDB/emirge/SSU_candidate_db.fasta'
 CONF['SSU_FA'] = '/mnt/projects/wilma/16s/S16_V2/ssu/SSU_candidate_db.p-knowlesi-spikein.fasta'
 CONF['SSU_DB'] = CONF['SSU_FA'].replace('.fasta', '')
+CONF['SPIKEIN-NAME'] = "Plasmodium.knowlesi.profilin"
 CONF['GG_REF'] = '/mnt/genomeDB/misc/greengenes.secondgenome.com/downloads/13_5/gg_13_5_otus/rep_set/99_otus.fasta'
 CONF['GG_REF'] = '/mnt/projects/wilma/16s/S16_V2/greengenes/99_otus.fasta'
 CONF['GG_TAX'] = '/mnt/genomeDB/misc/greengenes.secondgenome.com/downloads/13_5/gg_13_5_otus/taxonomy/99_otu_taxonomy.txt'
 # programs
 CONF['FAMAS'] = "/mnt/software/stow/famas-0.0.7/bin/famas"
+CONF['PREFILTER'] = os.path.abspath(
+    os.path.join(os.path.dirname(sys.argv[0]), "S16_V2_prefilter.py"))
 CONF['PRIMER_TRIMMER'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "primer_trimmer.py"))
 CONF['CLASSIFY_HITS'] = os.path.abspath(
@@ -82,6 +86,7 @@ CONF['CLASSIFY_HITS'] = os.path.abspath(
 CONF['IDENT_TO_BAM'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "ident_to_bam.py"))
 CONF['GRAPHMAP'] = '/mnt/software/stow/graphmap-0.2.2-dev-604a386/bin/graphmap'
+CONF['BWA'] = '/mnt/software/stow/bwa-0.7.12/bin/bwa'
 #CONF['BLASTN'] = '/mnt/software/stow/ncbi-blast-2.2.28+/bin/blastn'
 CONF['CONVERT_TABLE'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "convert_table.py"))
@@ -92,7 +97,7 @@ def main():
     """
 
     for f in CONF.keys():
-        if f in ['SSU_DB']:
+        if f in ['SSU_DB', 'SPIKEIN-NAME']:
             continue
         if not os.path.exists(CONF[f]):
             LOG.fatal("Missing file: {}".format(CONF[f]))
@@ -174,6 +179,7 @@ def main():
                 sys.exit(1)
 
     os.mkdir(args.outdir)
+    os.mkdir(os.path.join(args.outdir, "results"))
 
     samples = []
     fqs1 = [os.path.abspath(f) for f in args.fq1]
@@ -202,12 +208,13 @@ def main():
                     os.path.join(args.outdir, SNAKEMAKE_FILE))
 
     snakemake_cluster_wrapper = os.path.join(args.outdir, SNAKEMAKE_CLUSTER_WRAPPER)
+    mail_option = "-m bes -M {}@gis.a-star.edu.sg".format(getpass.getuser())
     with open(snakemake_cluster_wrapper, 'w') as fh:
         fh.write('# snakemake requires python3\n')
         fh.write('source activate py3k;\n')
         fh.write('cd {};\n'.format(os.path.abspath(args.outdir)))
         fh.write('# qsub for snakemake itself\n')
-        fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=1G -l h_rt=32:00:00 -j y -V -b y -cwd";\n')
+        fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=1G -l h_rt=32:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
         fh.write('# -j in cluster mode is the maximum number of spawned jobs\n')
         fh.write('$qsub -N snakemake -o snakemake.qsub.log \'snakemake -j 8 -c "qsub -pe OpenMP {{threads}} -l mem_free=12G -l h_rt=24:00:00 -j y -V -b y -cwd" -s {} --configfile {}\';\n'.format(
                 SNAKEMAKE_FILE, CONFIG_FILE))
