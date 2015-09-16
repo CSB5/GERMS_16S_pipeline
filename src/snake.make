@@ -7,7 +7,8 @@ from snakemake.utils import report
 
 # simulate a bash login shell, see https://bitbucket.org/johanneskoester/snakemake/wiki/FAQ
 shell.executable("/bin/bash")
-shell.prefix("source ~/.bashrc; set -o pipefail; ")
+# "unofficial bash strict mode" http://www.redsymbol.net/articles/unofficial-bash-strict-mode/
+shell.prefix("source ~/.bashrc; set -euo pipefail;")
 
 if config['USE_AMPLICON']:
    EMIRGE = config['EMIRGE_BASEDIR'] + '/' + 'emirge_amplicon.py'
@@ -115,7 +116,7 @@ rule report:
 
           Abundances are scaled to 100% and are only based on
           16S sequences. Unspecific products, spike-in
-          ({config['SPIKEIN-NAME']}) and 16S ratio are listed in:
+          ({config[SPIKEIN-NAME]}) and 16S ratio are listed in:
           ratios_.
 
           """, output.html, metadata="Andreas WILM", **input)
