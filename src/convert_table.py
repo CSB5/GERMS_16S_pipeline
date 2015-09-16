@@ -98,6 +98,8 @@ def main(raw_table, outprefix):
         # Set aspect ratio to be equal so that pie is drawn as a circle.
         plt.axis('equal')
         plt.savefig(outplot)
+        plt.clf()
+
 
 if __name__ == '__main__':
     assert len(sys.argv) == 3
