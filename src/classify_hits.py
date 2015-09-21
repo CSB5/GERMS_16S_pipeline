@@ -101,10 +101,13 @@ def parse_bam(bam, ident_tag=IDENT_TAG):
     query_to_hit = dict()
     samfh = pysam.Samfile(bam)
     for r in samfh:
-        pwid = round(r.get_tag(ident_tag), 1)
-        ref = samfh.getrname(r.tid)
         assert not query_to_hit.has_key(r.query_name)
-        query_to_hit[r.query_name] = BestHit(seqid=ref, pwid=pwid, tax=None)
+        if r.is_unmapped:
+            query_to_hit[r.query_name] = None
+        else:
+            pwid = round(r.get_tag(ident_tag), 1)
+            ref = samfh.getrname(r.tid)
+            query_to_hit[r.query_name] = BestHit(seqid=ref, pwid=pwid, tax=None)
     samfh.close()
     return query_to_hit
 
@@ -152,6 +155,13 @@ def main():
 
     LOG.info("Load taxonomy from  {}".format(args.green_tax))
     gg_tax = parse_greengenes_taxonomy(args.green_tax)
+
+    # dummy entry for no taxonomy hits
+    no_tax = gg_tax.values()[0]
+    for k, v in no_tax.items():
+        no_tax[k] = ""
+    no_hit = BestHit(seqid='*', pwid=0, tax=no_tax)
+
     if args.hit_type == 'blast':
         p = parse_best_blast_hit
     elif args.hit_type is None and args.hit_file.endswith(".csv"):
@@ -167,7 +177,11 @@ def main():
 
 
     LOG.info("Assigning taxonomy to hits in {}".format(args.query_file))
-    with open(args.query_file) as fh, open(args.out_table, 'w') as fhout:
+    if args.out_table == "-":
+        fhout = sys.stdout
+    else:
+        fhout = open(args.out_table, 'w')
+    with open(args.query_file) as fh:
         for (s_id, s_seq) in fasta_iter(fh):
             # emirge id's look as follows:
             # >47|AJ704791.1.1593 Prior=0.045024 Length=744 NormPrior=0.045018
@@ -176,15 +190,17 @@ def main():
             s_id = s_id_split[0]
             besthit = query_to_hit.get(s_id, None)
             # since blast was run against gg otus we can read from gg tax
-            if besthit is not None:
+            if besthit is None:
+                besthit = no_hit        
+            else:
                 tax = gg_tax.get(besthit.seqid, None)
                 besthit = besthit._replace(tax=tax)
-                fhout.write("{}\t{}\t{}\t{}\t{}\n".format(
+
+            fhout.write("{}\t{}\t{}\t{}\t{}\n".format(
                     s_id, abundance, besthit.seqid, besthit.pwid,
                     '\t'.join(["{}:{}".format(k, v) for (k, v) in besthit.tax.items()])))
-            else:
-                fhout.write("{}\tNA\n".format(s_id))
-
+    if fhout != sys.stdout:
+        fhout.close()
 
 if __name__ == '__main__':
     main()
