@@ -1,14 +1,16 @@
-# FIXME
-# - ensure usearch and bowtie are in PATH as well
-# - add cluster config rules per target e.g. params: runtime="4h" and use in cluster arg
-# - add report
-
+import shutil
 from snakemake.utils import report
 
 # simulate a bash login shell, see https://bitbucket.org/johanneskoester/snakemake/wiki/FAQ
 shell.executable("/bin/bash")
 # "unofficial bash strict mode" http://www.redsymbol.net/articles/unofficial-bash-strict-mode/
+
 shell.prefix("source ~/.bashrc; set -euo pipefail;")
+
+# emirge needs bowtie and usearch
+assert shutil.which("usearch")# 6.0.307 ok
+assert shutil.which("bowtie")# 0.12.8 ok
+
 
 if config['USE_AMPLICON']:
    EMIRGE = config['EMIRGE_BASEDIR'] + '/' + 'emirge_amplicon.py'
@@ -22,6 +24,8 @@ EMIRGE_RENAME = config['EMIRGE_BASEDIR'] + '/' + 'emirge_rename_fasta.py'
 rule final:
   input:   'convert_tables.succeeded', 'results/report.html'
   message: 'This is the end. My only friend, the end'
+  output: COMPLETE
+  shell:  'touch {OUTPUT}'
 
 
 rule trim_fastq:
@@ -52,13 +56,12 @@ rule emirge:
   input:     fq1=rules.pre_filter.output.fq1, fq2=rules.pre_filter.output.fq2
   threads:   8
   output:    'emirge.succeeded'
-  message:   'WARN: one iteration only!'
   benchmark: "emirge-benchmark.json"
-  params:    max_read_len=config['MAX_READ_LEN'], ins_size=config['INS_SIZE'], ins_stdev=config['INS_STDEV'], ssu_fa=config['SSU_FA'], ssu_db=config['SSU_DB']
+  params :    max_read_len=config['MAX_READ_LEN'], ins_size=config['INS_SIZE'], ins_stdev=config['INS_STDEV'], ssu_fa=config['SSU_FA'], ssu_db=config['SSU_DB'],
+              iter_arg="-n 1" if config['DEBUG'] else "-n 20"
   #params:    max_read_len=config['MAX_READ_LEN'], ssu_fa=config['SSU_FA']
   # existing emirge directory can't be reused so delete if existing
-  shell:     'test -d emirge && rm -rf emirge; {EMIRGE} -l {params.max_read_len} -i {params.ins_size} -s {params.ins_stdev} --phred33 -n 1 -a {threads} emirge -f {params.ssu_fa} -b {params.ssu_db} -1 {input.fq1} -2 {input.fq2} && touch {output}'
-  #shell:     'test -d emirge && rm -rf emirge; {EMIRGE} -l {params.max_read_len} -n 1 -a {threads} emirge -f {params.ssu_fa} -1 {input.fq1} -2 {input.fq2} && touch {output}'
+  shell:     'test -d emirge && rm -rf emirge; {EMIRGE} -l {params.max_read_len} -i {params.ins_size} -s {params.ins_stdev} --phred33 {params.iter_arg} -a {threads} emirge -f {params.ssu_fa} -b {params.ssu_db} -1 {input.fq1} -2 {input.fq2} && touch {output}'
 
 
 rule emirge_rename:
@@ -67,10 +70,19 @@ rule emirge_rename:
   run:
     import glob
     import subprocess
+    import fnmatch
+    import os
+
     last_iter = sorted(glob.glob(os.path.join("emirge", "iter.*")))[-1]
     cmd = [EMIRGE_RENAME, last_iter]
+    print("Using {}".format(last_iter))
     with open(output[0], "w") as fh:
         subprocess.call(cmd, stdout=fh)
+    # clean BAMs from emirge. FIXME sep target?
+    if not config['DEBUG']:
+        for root, dirnames, filenames in os.walk('emirge'):
+            for filename in fnmatch.filter(filenames, '*.bam'):
+                os.unlink(os.path.join(root, filename))
 
 
 rule emirge_trim_primer:
@@ -119,4 +131,14 @@ rule report:
           ({config[SPIKEIN-NAME]}) and 16S ratio are listed in:
           ratios_.
 
+          ============
+          How it works
+          ============
+
+          - Trim Q2 of 3' end (as original EMIRGE recipe) and discard shorter pairs
+          - Remove unspecific and spike-in product (ratios vs 16S listed in ratios.txt)
+          - Run EMIRGE (Miller et al., 2011, PMID 21595876) or EMIRGE amplicon (Miller et al., 2013, PMID 23405248)
+	  - Trim primer of reconstructed sequences discarding sequences too short or too long
+          - Classify by mapping against Greengenes (99% OTUs)
+          
           """, output.html, metadata="Andreas WILM", **input)
