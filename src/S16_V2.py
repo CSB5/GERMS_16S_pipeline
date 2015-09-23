@@ -1,9 +1,12 @@
 #!/usr/bin/env python
-"""This is a remake of Vinutha's original 16S pipeline, which was
-designed for Illumina shotgun Sequencing of 16S rRNA Amplicon
-Sequences (Ong et al., 2013, PMID 23579286). At its core it's running
-EMIRGE (Miller et al., 2011, PMID 21595876) or EMIRGE amplicon for
-reconstructing the sequences and BLAST + Greengenes for classification.
+"""This is a remake of the original 16S pipeline, designed for
+Illumina shotgun sequencing of 16S rRNA amplicon sequences (Ong et
+al., 2013, PMID 23579286). At its core it's running EMIRGE (Miller et
+al., 2011, PMID 21595876) or EMIRGE amplicon (Miller et al., 2013;
+PMID 23405248) for reconstructing the sequences. Sequences are then
+mapped against a preclustered version of Greengenes for
+classification.
+
 """
 
 
@@ -202,8 +205,10 @@ def main():
         fh.write('# qsub for snakemake itself\n')
         fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=1G -l h_rt=48:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
         fh.write('# -j in cluster mode is the maximum number of spawned jobs\n')
-        fh.write('$qsub -N snakemake -o snakemake.qsub.log \'snakemake -j 8 -c "qsub -pe OpenMP {{threads}} -l mem_free=12G -l h_rt=24:00:00 -j y -V -b y -cwd" -s {} --configfile {}\';\n'.format(
-                SNAKEMAKE_FILE, CONFIG_FILE))
+        fh.write('$qsub -N snakemake -o snakemake.qsub.log')
+        qsub_per_task = "qsub -pe OpenMP {{threads}} -l mem_free=12G -l h_rt=24:00:00 -j y -V -b y -cwd"
+        fh.write(' \'snakemake -j 8 -c "{}" -s {} --configfile {}\';\n'.format(
+               qsub_per_task, SNAKEMAKE_FILE, CONFIG_FILE))
         # FIXME max runtime should be defined per target in SNAKEMAKE_FILE
 
     cmd = ['bash', snakemake_cluster_wrapper]
