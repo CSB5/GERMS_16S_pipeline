@@ -2,23 +2,8 @@
 """This is a remake of Vinutha's original 16S pipeline, which was
 designed for Illumina shotgun Sequencing of 16S rRNA Amplicon
 Sequences (Ong et al., 2013, PMID 23579286). At its core it's running
-EMIRGE (Miller et al., 2011, PMID 21595876) for reconstructing the
-sequences and BLAST + Greengenes for classification
-
-This pipelines works as follows:
-- If necesssary, concat split fastq files, remove Q2 bases from 3', check paired end read name consistency
-- Run FastQC
-- Run EMIRGE or EMIRGE amplicon
-- Trim primers
-- Infer taxonomy from best hit against Greengenes
-- Compile tables
-
-TODO:
-- BLAST vs Graphmap
-- Use a pipeline framework like bpipe and serves
-  only as a stop-gap.
-- Add decont step
-- Add downsampling option
+EMIRGE (Miller et al., 2011, PMID 21595876) or EMIRGE amplicon for
+reconstructing the sequences and BLAST + Greengenes for classification.
 """
 
 
@@ -90,6 +75,7 @@ CONF['BWA'] = '/mnt/software/stow/bwa-0.7.12/bin/bwa'
 #CONF['BLASTN'] = '/mnt/software/stow/ncbi-blast-2.2.28+/bin/blastn'
 CONF['CONVERT_TABLE'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "convert_table.py"))
+CONF['DEBUG'] = False
 
 
 def main():
@@ -97,7 +83,7 @@ def main():
     """
 
     for f in CONF.keys():
-        if f in ['SSU_DB', 'SPIKEIN-NAME']:
+        if f in ['SSU_DB', 'SPIKEIN-NAME', 'DEBUG']:
             continue
         if not os.path.exists(CONF[f]):
             LOG.fatal("Missing file: {}".format(CONF[f]))
@@ -214,7 +200,7 @@ def main():
         fh.write('source activate py3k;\n')
         fh.write('cd {};\n'.format(os.path.abspath(args.outdir)))
         fh.write('# qsub for snakemake itself\n')
-        fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=1G -l h_rt=32:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
+        fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=1G -l h_rt=48:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
         fh.write('# -j in cluster mode is the maximum number of spawned jobs\n')
         fh.write('$qsub -N snakemake -o snakemake.qsub.log \'snakemake -j 8 -c "qsub -pe OpenMP {{threads}} -l mem_free=12G -l h_rt=24:00:00 -j y -V -b y -cwd" -s {} --configfile {}\';\n'.format(
                 SNAKEMAKE_FILE, CONFIG_FILE))
