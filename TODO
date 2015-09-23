@@ -1,0 +1,12 @@
+* Todos:
+- remove emirge directory or BAMs (implemented; to check)
+- check that last iteration fasta is used
+- setup testing with p33 and simulated tests
+
+* Enhancements
+- add cluster config rules per target e.g. params: runtime="4h" and use in cluster arg
+- plot iteration
+- report: add description of how it works
+- using only one iteration (make debugging option)
+- hardcoded and different python interpreters used
+
