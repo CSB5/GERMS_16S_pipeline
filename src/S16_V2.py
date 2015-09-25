@@ -206,7 +206,7 @@ def main():
         fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=1G -l h_rt=48:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
         fh.write('# -j in cluster mode is the maximum number of spawned jobs\n')
         fh.write('$qsub -N snakemake -o snakemake.qsub.log')
-        qsub_per_task = "qsub -pe OpenMP {{threads}} -l mem_free=12G -l h_rt=24:00:00 -j y -V -b y -cwd"
+        qsub_per_task = "qsub -pe OpenMP {threads} -l mem_free=12G -l h_rt=24:00:00 -j y -V -b y -cwd"
         fh.write(' \'snakemake -j 8 -c "{}" -s {} --configfile {}\';\n'.format(
                qsub_per_task, SNAKEMAKE_FILE, CONFIG_FILE))
         # FIXME max runtime should be defined per target in SNAKEMAKE_FILE
