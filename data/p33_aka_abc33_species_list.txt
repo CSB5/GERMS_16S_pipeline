@@ -1,0 +1,33 @@
+Bacteroides fragilis JCM 11019T
+Bacteroides thetaiotaomicron JCM 5827T
+Bacteroides vulgatus JCM 5826T
+Bifidobacterium adolescentis JCM 1275T
+Bifidobacterium catenulatum JCM 1194T
+Bifidobacterium longum subsp. infantis JCM 1222T 
+Bifidobacterium longum subsp. longum JCM 1217T 
+Blautia coccoides DSM 935
+Blautia hansenii JCM 14655T
+Blautia producta JCM 1471T
+Clostridium difficile DSM 1296
+Clostridium leptum DSM 753
+Clostridium perfringens DSM 756
+Collinsella aerofaciens JCM 10188T
+Corynebacterium kroppenstedtii JCM 11950T
+Enterococcus faecalis ATCC 29212
+Escherichia coli O157
+Faecalibacterium prausnitzii DSM 17677
+Lactobacillus acidophilus JCM 1132T
+Lactobacillus gasseri JCM 1131T
+Mycobacterium tuberculosis H37Ra ATCC 25177
+Neisseria gonorrhoeae ATCC 53423
+Neisseria lactamica DSM 4691
+Neisseria meningitidis DSM 10036
+Neisseria mucosa JCM 12992T
+Neisseria perflava ATCC 14799
+Nocardia asteroides JCM 3384T
+Porphyromonas gingivalis JCM 12257T
+Propionibacterium acnes JCM 6425T
+Roseburia intestinalis DSM 14610
+Staphylococcus aureus ATCC 6538P
+Streptococcus oralis JCM 12997T
+Streptococcus thermophilus JCM 20026 

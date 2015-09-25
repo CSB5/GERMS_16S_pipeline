@@ -48,7 +48,14 @@ for the different taxonomi ranks are implemented as determined by
 ## Tip
 
 If you want to first see what the pipeline would do, call `S16_V2.py` with `--no-run`.
-Then check the created files (see above). To get a graphical representation of the workflow, run (from the output directory):
+Then check the created files (see above).
+
+To print all commands that would be run, use:
+
+    snakemake -s snake.make --configfile conf.json -n -p
+
+
+To get a graphical representation of the workflow, run (from the output directory):
 
     snakemake -s snake.make --configfile conf.json --dag --forceall | dot -Tpdf > dag.pdf
 
