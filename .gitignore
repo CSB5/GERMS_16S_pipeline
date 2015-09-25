@@ -2,4 +2,5 @@
 *pyc
 core*
 src/#*
-tmp/
+tmp/data/p33_sra/SRR499813_1.fastq.gz
+data/p33_sra/SRR499813_2.fastq.gz
