@@ -57,16 +57,16 @@ CONF = dict()
 # databases and files
 CONF['EMIRGE_BASEDIR'] = "/mnt/software/stow/emirge-v0.60-15-g0ddae1c-wilma/bin/"
 #CONF['SSU_FA'] = '/mnt/genomeDB/misc/softwareDB/emirge/SSU_candidate_db.fasta'
-CONF['SSU_FA'] = '/mnt/projects/wilma/16s/S16_V2/ssu/SSU_candidate_db.p-knowlesi-spikein.fasta'
+CONF['SSU_FA'] = '/mnt/projects/wilma/16s/GERMS_16S_pipeline/ssu/SSU_candidate_db.p-knowlesi-spikein.fasta'
 CONF['SSU_DB'] = CONF['SSU_FA'].replace('.fasta', '')
 CONF['SPIKEIN-NAME'] = "Plasmodium.knowlesi.profilin"
-CONF['GG_REF'] = '/mnt/genomeDB/misc/greengenes.secondgenome.com/downloads/13_5/gg_13_5_otus/rep_set/99_otus.fasta'
-CONF['GG_REF'] = '/mnt/projects/wilma/16s/S16_V2/greengenes/99_otus.fasta'
+#CONF['GG_REF'] = '/mnt/genomeDB/misc/greengenes.secondgenome.com/downloads/13_5/gg_13_5_otus/rep_set/99_otus.fasta'
+CONF['GG_REF'] = '/mnt/projects/wilma/16s/GERMS_16S_pipeline/greengenes/99_otus.fasta'
 CONF['GG_TAX'] = '/mnt/genomeDB/misc/greengenes.secondgenome.com/downloads/13_5/gg_13_5_otus/taxonomy/99_otu_taxonomy.txt'
 # programs
 CONF['FAMAS'] = "/mnt/software/stow/famas-0.0.7/bin/famas"
 CONF['PREFILTER'] = os.path.abspath(
-    os.path.join(os.path.dirname(sys.argv[0]), "S16_V2_prefilter.py"))
+    os.path.join(os.path.dirname(sys.argv[0]), "S16_prefilter.py"))
 CONF['PRIMER_TRIMMER'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "primer_trimmer.py"))
 CONF['CLASSIFY_HITS'] = os.path.abspath(

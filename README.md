@@ -1,18 +1,20 @@
-This is a remake of the original 16S pipeline, designed for Illumina
-shotgun sequencing of 16S rRNA amplicon sequences
+This is a remake of the original 16S pipeline developed with in the
+[Genome Institute of Singapore](http://www.a-star.edu.sg/gis),
+designed for Illumina shotgun sequencing of 16S rRNA amplicon
+sequences
 ([Ong et al., 2013, PMID 23579286](http://www.ncbi.nlm.nih.gov/pubmed/23579286)).
 
 ## Running the pipeline
 
 The pipeline is based on
 [snakemake](http://www.ncbi.nlm.nih.gov/pubmed/22908215). The main
-program (`S16_V2.py`) will write a config file (`conf.json`) and
+program (`S16.py`) will write a config file (`conf.json`) and
 snakemake file (`snake.make`) in the given output directory. These are
 then used to call snakemake via `qsub` using the also created wrapper
 script `snake.sh`. The system will send an email to you upon
 completion (be it successful or not).
 
-For help see `S16_V2.py --help`.
+For help see `S16.py --help`.
 
 Only upon successful completion the output directory will contain an
 empty file called `COMPLETE`.
@@ -47,7 +49,7 @@ for the different taxonomi ranks are implemented as determined by
 
 ## Tip
 
-If you want to first see what the pipeline would do, call `S16_V2.py` with `--no-run`.
+If you want to first see what the pipeline would do, call `S16.py` with `--no-run`.
 Then check the created files (see above).
 
 To print all commands that would be run, use:
@@ -61,3 +63,9 @@ To get a graphical representation of the workflow, run (from the output director
 
 and have a look at `dag.pdf`. Once you're satisfied just run `bash snake.sh`.
 
+
+## Setup
+
+This is tuned towards an in-house setup. If you want to replicate it
+see the CONF variable in `S16.py`, which lists expected binaries and
+databases.
