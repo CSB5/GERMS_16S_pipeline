@@ -117,40 +117,19 @@ rule convert_tables:
 rule report:
   input:  ratios=rules.pre_filter.output.ratios,
           rawtable=rules.classify.output[0],
-          phylum_pdf='results/Phylum-piechart.pdf',
-	  phylum_tbl='results/Phylum-table.csv',
-          class_pdf='results/Class-piechart.pdf',
-	  class_tbl='results/Class-table.csv',
-          order_pdf='results/Order-piechart.pdf',
-	  order_tbl='results/Order-table.csv',
-          family_pdf='results/Family-piechart.pdf',
-	  family_tbl='results/Family-table.csv',
-          genus_pdf='results/Genus-piechart.pdf',
-	  genus_tbl='results/Genus-table.csv',
-          species_pdf='results/Species-piechart.pdf',
-	  species_tbl='results/Species-table.csv',
   output: html="results/report.html"
   run:    report("""
           ===================
           16S Pipeline Report
           ===================
 
-          Abundances are scaled to 100% and are only based on
-          valid 16S sequences.
-
-	  Ratios of unspecific products, spike-in
+          Ratios of unspecific products, spike-in
           ({config[SPIKEIN-NAME]}) and 16S are listed in the
           ratios_ file.
 
           All raw results can be found in file rawtable_
 
-          Abundances for each taxonomic rank are listed in the files
-          below (csv for tables and pdf for quick and dirty piecharts)
-
-          - Phylum: phylum_tbl_, phylum_pdf,
-          - Class: class_tbl_, class_pdf_,
-          - Order: order_tbl_, order_pdf_,
-          - Family: family_tbl_, family_pdf_,
-          - Genus: genus_tbl_, genus_pdf_,
-          - Species: species_tbl_, species_pdf_,
+          Abundances are scaled to 100% and are only based on
+          valid 16S sequences. Abundances for each taxonomic rank are listed in the files called
+	      rank-table.csv and (quick and dirty piecharts) in rank-piechart.pdf
           """, output.html, metadata="Andreas WILM", **input)
