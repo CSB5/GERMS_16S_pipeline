@@ -7,6 +7,10 @@ shell.executable("/bin/bash")
 
 shell.prefix("source ~/.bashrc; set -euo pipefail;")
 
+
+localrules: emirge_rename, emirge_trim_primer, classify, rarefaction, convert_tables, final
+
+
 # emirge needs bowtie and usearch
 assert shutil.which("usearch")# 6.0.307 ok
 assert shutil.which("bowtie")# 0.12.8 ok
@@ -22,7 +26,7 @@ EMIRGE_RENAME = config['EMIRGE_BASEDIR'] + '/' + 'emirge_rename_fasta.py'
 # must be first rule
 
 rule final:
-  input:   'convert_tables.succeeded', 'results/report.html'
+  input:   'convert_tables.succeeded', 'results/report.html', 'results/rarefaction.pdf'
   message: 'This is the end. My only friend, the end'
   output: 'COMPLETE'
   shell:  'touch {output}'
@@ -89,7 +93,7 @@ rule emirge_trim_primer:
   input:  rules.emirge_rename.output
   output: 'emirge_outprimer_trimmed.fa'
   params: minlen='200', maxlen='1400'
-  shell:  '{config[PRIMER_TRIMMER]} -i {input} -o {output} --minlen {params.minlen} --maxlen {params.maxlen}'
+  shell:  '{config[PRIMER_TRIMMER]} -f -i {input} -o {output} --minlen {params.minlen} --maxlen {params.maxlen}'
 
 
 rule emirge_vs_gg:
@@ -104,8 +108,14 @@ rule classify:
   input: query=rules.emirge_trim_primer.output, hits=rules.emirge_vs_gg.output, gg_tax=config['GG_TAX']
   output: 'results/raw-table.txt'
   message: 'classifying hits'
-  shell: '{config[CLASSIFY_HITS]} -q {input.query} -i {input.hits} -t {input.gg_tax} -o {output}'
+  shell: '{config[CLASSIFY_HITS]} -f -q {input.query} -i {input.hits} -t {input.gg_tax} -o {output}'
 
+
+rule rarefaction:
+  input: 'results/raw-table.txt'
+  output: 'results/rarefaction.pdf'
+  message: 'Plotting rarefaction curve'
+  shell: '{config[PLOT_RAREFACTION]} -o {output} -t {input} -f'
 
 rule convert_tables:
   input:  rules.classify.output

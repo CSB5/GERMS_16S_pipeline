@@ -34,8 +34,10 @@ __email__ = "wilma@gis.a-star.edu.sg"
 __license__ = "The MIT License (MIT)"
 
 
+LOG_DIR = "logs"
+
 # global logger
-LOG = logging.getLogger("")
+logger = logging.getLogger("")
 logging.basicConfig(level=logging.WARN,
     format='%(levelname)s [%(asctime)s]: %(message)s')
 
@@ -81,6 +83,8 @@ CONF['CLASSIFY_HITS'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "classify_hits.py"))
 CONF['IDENT_TO_BAM'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "ident_to_bam.py"))
+CONF['PLOT_RAREFACTION'] = os.path.abspath(
+    os.path.join(os.path.dirname(sys.argv[0]), "plot_rarefaction.py"))
 CONF['GRAPHMAP'] = '/mnt/software/stow/graphmap-0.2.2-dev-604a386/bin/graphmap'
 CONF['BWA'] = '/mnt/software/stow/bwa-0.7.12/bin/bwa'
 #CONF['BLASTN'] = '/mnt/software/stow/ncbi-blast-2.2.28+/bin/blastn'
@@ -89,6 +93,21 @@ CONF['CONVERT_TABLE'] = os.path.abspath(
 CONF['DEBUG'] = False
 
 
+def which_plain(pgm):
+    """for >= python3.3 use shutil.which)"""
+    path=os.getenv('PATH')
+    for p in path.split(os.path.pathsep):
+        p=os.path.join(p,pgm)
+        if os.path.exists(p) and os.access(p, os.X_OK):
+            return p
+
+        
+try:
+    from shutil import which
+except ImportError:
+    which = which_plain
+
+    
 def main():
     """The main function
     """
@@ -97,10 +116,18 @@ def main():
         if f in ['SSU_DB', 'SPIKEIN-NAME', 'DEBUG']:
             continue
         if not os.path.exists(CONF[f]):
-            LOG.fatal("Missing file: {}".format(CONF[f]))
+            logger.fatal("Missing file: {}".format(CONF[f]))
             sys.exit(1)
     assert os.path.exists(SNAKEMAKE_TEMPLATE)
 
+
+    # also done in snakefile but do this before submission
+    if not which("usearch"):# 6.0.307 ok
+        logger.fatal("Couldn't find usearch")
+        sys.exit(1)
+    if not which("bowtie"):# 0.12.8 ok
+        logger.fatal("Couldn't find bowtie")
+        sys.exit(1)
 
     parser = argparse.ArgumentParser(description='16S pipeline: version 2')
     parser.add_argument('-1', "--fq1", required=True, nargs="+",
@@ -141,42 +168,43 @@ def main():
 
 
     if args.verbose:
-        LOG.setLevel(logging.INFO)
+        logger.setLevel(logging.INFO)
     if args.debug:
-        LOG.setLevel(logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
 
     if args.continue_run:
         raise NotImplementedError()
 
     if os.path.exists(args.outdir):
         if not args.continue_run:
-            LOG.fatal("Output directory must not exist: {}".format(args.outdir))
+            logger.fatal("Output directory must not exist: {}".format(args.outdir))
             sys.exit(1)
     else:
         if args.continue_run:
-            LOG.fatal("Can't continue job that wasn't started yet")
+            logger.fatal("Can't continue job that wasn't started yet")
             sys.exit(1)
 
     if args.fq1 == args.fq2:
-        LOG.fatal("Paired-End FastQ files have identical names")
+        logger.fatal("Paired-End FastQ files have identical names")
         sys.exit(1)
     for fq1, fq2 in zip_longest(args.fq1, args.fq2):
         # only i|zip_longest uses None if one is missing
         if fq1 is None or fq2 is None:
-            LOG.fatal("Unequal number of FastQ files")
+            logger.fatal("Unequal number of FastQ files")
             sys.exit(1)
         # enforce gzipped fastq
         # check they all exist
         for f in [fq1, fq2]:
             if not os.path.exists(f):
-                LOG.fatal("FastQ file {} does not exist".format(f))
+                logger.fatal("FastQ file {} does not exist".format(f))
                 sys.exit(1)
             elif not f.endswith(".gz"):
-                LOG.fatal("Non-gzipped FastQ files not supported")
+                logger.fatal("Non-gzipped FastQ files not supported")
                 sys.exit(1)
 
     os.mkdir(args.outdir)
     os.mkdir(os.path.join(args.outdir, "results"))
+    os.mkdir(os.path.join(args.outdir, LOG_DIR))
 
     samples = []
     fqs1 = [os.path.abspath(f) for f in args.fq1]
@@ -205,28 +233,32 @@ def main():
                     os.path.join(args.outdir, SNAKEMAKE_FILE))
 
     snakemake_cluster_wrapper = os.path.join(args.outdir, SNAKEMAKE_CLUSTER_WRAPPER)
-    mail_option = "-m bes -M {}@gis.a-star.edu.sg".format(getpass.getuser())
+    mail_option = "-m beas -M {}@gis.a-star.edu.sg".format(getpass.getuser())
+    snakemake_log = os.path.join(LOG_DIR, "snakemake.log")
     with open(snakemake_cluster_wrapper, 'w') as fh:
         fh.write('# snakemake requires python3\n')
         fh.write('source activate py3k;\n')
-        fh.write('cd {};\n'.format(os.path.abspath(args.outdir)))
+        #fh.write('cd {};\n'.format(os.path.abspath(args.outdir)))
+        fh.write('cd $(dirname $0);\n')
         fh.write('# qsub for snakemake itself\n')
-        fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=1G -l h_rt=48:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
+        fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=8G -l h_rt=72:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
         fh.write('# -j in cluster mode is the maximum number of spawned jobs\n')
-        fh.write('$qsub -N snakemake -o snakemake.qsub.log')
-        qsub_per_task = "qsub -pe OpenMP {threads} -l mem_free=12G -l h_rt=24:00:00 -j y -V -b y -cwd"
-        fh.write(' \'snakemake -j 8 -c "{}" -s {} --configfile {}\';\n'.format(
-               qsub_per_task, SNAKEMAKE_FILE, CONFIG_FILE))
+        fh.write('$qsub -N S16.master -o {}'.format(snakemake_log))
+        qsub_per_task = "qsub -pe OpenMP {threads} -l mem_free=12G -l h_rt=24:00:00"
+        qsub_per_task += " -j y -V -b y -o {} -cwd".format(LOG_DIR)
         # FIXME max runtime should be defined per target in SNAKEMAKE_FILE
+        fh.write(' \'snakemake -j 4 -c "{}" --jobname "S16.{{rulename}}.{{jobid}}.sh" -s {} --configfile {}\';\n'.format(
+               qsub_per_task, SNAKEMAKE_FILE, CONFIG_FILE))
 
     cmd = ['bash', snakemake_cluster_wrapper]
     if args.no_run:
-        print("Not actually submitting job")
-        print("When ready run: {}".format(' '.join(cmd)))
+        sys.stderr.write("WARN: Not actually submitting job\n")
+        sys.stderr.write("When ready run: {}\n".format(' '.join(cmd)))
     else:
-        print("Running: {}".format(cmd))
+        print("Running: {}".format(' '.join(cmd)))
         subprocess.check_output(cmd)
-                
+        print("See {} for logging information ".format(
+            os.path.normpath(os.path.join(args.outdir, snakemake_log))))
 
 if __name__ == '__main__':
     main()

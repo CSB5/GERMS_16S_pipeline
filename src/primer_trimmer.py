@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/mnt/software/unstowable/anaconda/bin/python
 """Primer chopping for the 16S project.
 
 Uses difflib for locating the subsequence best (min 0.6 identity; see
@@ -14,7 +14,7 @@ import logging
 import difflib
 import sys
 import os
-from optparse import OptionParser
+import argparse
 import gzip
 
 #--- third-party imports
@@ -83,35 +83,34 @@ def guess_seqformat(fseq):
 
 
 def cmdline_parser():
-    """
-    creates an OptionParser instance
+    """create argparse instance
     """
 
-    # http://docs.python.org/library/optparse.html
-    usage = "%prog: " + __doc__ + "\n" \
-            "usage: %prog [options]"
-    parser = OptionParser(usage=usage)
-
-    parser.add_option("-v", "--verbose",
+    parser = argparse.ArgumentParser(
+        description=os.path.basename(sys.argv[0]) + ": " + __doc__)
+ 
+    parser.add_argument("-v", "--verbose",
                       action="store_true", dest="verbose",
                       help="be verbose")
-    parser.add_option("", "--debug",
+    parser.add_argument("--debug",
                       action="store_true", dest="debug",
                       help="debugging")
-    parser.add_option("-i", "--input",
-                      dest="fseq_in", # type="string|int|float"
+    parser.add_argument("-i", "--input",
+                      dest="fseq_in",
                       help="Sequence input file (gzip supported)")
-    parser.add_option("-o", "--output",
-                      dest="fseq_out", # type="string|int|float"
+    parser.add_argument("-o", "--output",
+                      dest="fseq_out",
                       help="Sequence output file")
-    parser.add_option("", "--minlen",
+    parser.add_argument("--minlen",
                       dest="minlen",
-                      type="int",
+                      type=int,
                       default=DEFAULT_MIN_LEN,
                       help="Minimum allowed sequence length after chopping (default: %d)" % DEFAULT_MIN_LEN)
-    parser.add_option("", "--maxlen",
+    parser.add_argument('-f', "--overwrite", action="store_true",
+                        help='Force overwrite')
+    parser.add_argument("--maxlen",
                       dest="maxlen",
-                      type="int",
+                      type=int,
                       default=DEFAULT_MAX_LEN,
                       help="Maximum allowed sequence length after chopping (default: %d)" % DEFAULT_MAX_LEN)
     return parser
@@ -125,49 +124,44 @@ def main():
     """
 
     parser = cmdline_parser()
-    (opts, args) = parser.parse_args()
-
-    if len(args):
-        parser.error("Unrecognized arguments found: %s." % (
-            ' '.join(args)))
-        sys.exit(1)
-        
-    if opts.verbose:
+    args = parser.parse_args()
+       
+    if args.verbose:
         LOG.setLevel(logging.INFO)
-    if opts.debug:
+    if args.debug:
         LOG.setLevel(logging.DEBUG)
         
-    if not opts.fseq_in:
+    if not args.fseq_in:
         parser.error("Input file argument missing.")
         sys.exit(1)
-    if not os.path.exists(opts.fseq_in):
+    if not os.path.exists(args.fseq_in):
         sys.stderr.write(
-            "Input file '%s' does not exist.\n" % opts.fseq_in)
+            "Input file '%s' does not exist.\n" % args.fseq_in)
         sys.exit(1)
 
-    if not opts.fseq_out:
+    if not args.fseq_out:
         parser.error("Output file argument missing.")
         sys.exit(1)
-    if os.path.exists(opts.fseq_out):
+    if os.path.exists(args.fseq_out) and not args.overwrite:
         sys.stderr.write(
-            "Cowardly refusing to overwrite existing file '%s'.\n" % opts.fseq_out)
+            "Cowardly refusing to overwrite existing file '%s'.\n" % args.fseq_out)
         sys.exit(1)
 
-    if opts.maxlen < opts.minlen:
+    if args.maxlen < args.minlen:
         sys.stderr.write(
-            "Maximum length %d is smaller than minimum length %d.\n" % (opts.minlen, opts.maxlen))
+            "Maximum length %d is smaller than minimum length %d.\n" % (args.minlen, args.maxlen))
         sys.exit(1)
         
 
     LOG.info("Trimming sequences in '%s' and writing to '%s'. Allowed length range = %d-%d." % (
-            opts.fseq_in, opts.fseq_out, opts.minlen, opts.maxlen))
-    if opts.fseq_in[-3:] == ".gz":
-        fh_in = gzip.open(opts.fseq_in, 'r')
+            args.fseq_in, args.fseq_out, args.minlen, args.maxlen))
+    if args.fseq_in[-3:] == ".gz":
+        fh_in = gzip.open(args.fseq_in, 'r')
     else:
-        fh_in = open(opts.fseq_in, 'r')
+        fh_in = open(args.fseq_in, 'r')
 
-    fh_out = open(opts.fseq_out, 'w')
-    seq_fmt = guess_seqformat(opts.fseq_in)
+    fh_out = open(args.fseq_out, 'w')
+    seq_fmt = guess_seqformat(args.fseq_in)
     for seqrec in SeqIO.parse(fh_in, seq_fmt):
         pos = dict()
         for ori in ['fw', 'rv']:
@@ -189,9 +183,9 @@ def main():
             continue
     
         outseq = str(seqrec.seq[pos['fw']:pos['rv']+len(PRIMER['rv'])])
-        if len(outseq) < opts.minlen or len(outseq) > opts.maxlen:
+        if len(outseq) < args.minlen or len(outseq) > args.maxlen:
             LOG.info("Skipping seq '%s' because trimmed sequence length (%d) outside of allowed range (min %d; max %d)" % (
-                    seqrec.id, len(outseq), opts.minlen, opts.maxlen))
+                    seqrec.id, len(outseq), args.minlen, args.maxlen))
             continue        
 
         # lazy! fasta only. could use biopython instead

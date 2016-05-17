@@ -2,7 +2,6 @@
 """Assign taxonomy based on greengenes hits
 """
 
-
 import os
 import sys
 import argparse
@@ -25,7 +24,7 @@ __license__ = "The MIT License (MIT)"
 # global logger
 LOG = logging.getLogger("")
 logging.basicConfig(level=logging.WARN,
-    format='%(levelname)s [%(asctime)s]: %(message)s')
+                    format='%(levelname)s [%(asctime)s]: %(message)s')
 
 IDENT_TAG = 'Xi'
 
@@ -128,7 +127,8 @@ def main():
                         help='Output table')
     parser.add_argument('-y', "--hit-type", choices=['csv', 'bam'],
                         help='Format of hits file (automatically guessed if not provided)')
-
+    parser.add_argument('-f', "--overwrite", action="store_true",
+                        help='Force overwrite')
     parser.add_argument('--verbose', action="store_true",
                         help='Enable verbose output')
     parser.add_argument('--debug', action="store_true",
@@ -144,21 +144,21 @@ def main():
 
     for f in [args.query_file, args.green_tax, args.hit_file]:
         if not os.path.exists(f):
-            LOG.fatal("Non-existant file {}".format(f))
+            LOG.fatal("Non-existant file %s", f)
             sys.exit(1)
 
     for f in [args.out_table]:
-        if os.path.exists(f):
-            LOG.fatal("Cowardly refusing to overwrite {}".format(f))
+        if os.path.exists(f) and not args.overwrite:
+            LOG.fatal("Cowardly refusing to overwrite %s", f)
             sys.exit(1)
 
 
-    LOG.info("Load taxonomy from  {}".format(args.green_tax))
+    LOG.info("Load taxonomy from %s", args.green_tax)
     gg_tax = parse_greengenes_taxonomy(args.green_tax)
 
     # dummy entry for no taxonomy hits
     no_tax = gg_tax.values()[0]
-    for k, v in no_tax.items():
+    for k in no_tax.keys():
         no_tax[k] = ""
     no_hit = BestHit(seqid='*', pwid=0, tax=no_tax)
 
@@ -176,13 +176,13 @@ def main():
 
 
 
-    LOG.info("Assigning taxonomy to hits in {}".format(args.query_file))
+    LOG.info("Assigning taxonomy to hits in %s", args.query_file)
     if args.out_table == "-":
         fhout = sys.stdout
     else:
         fhout = open(args.out_table, 'w')
     with open(args.query_file) as fh:
-        for (s_id, s_seq) in fasta_iter(fh):
+        for (s_id, _) in fasta_iter(fh):
             # emirge id's look as follows:
             # >47|AJ704791.1.1593 Prior=0.045024 Length=744 NormPrior=0.045018
             s_id_split = s_id.split()
@@ -191,14 +191,14 @@ def main():
             besthit = query_to_hit.get(s_id, None)
             # since blast was run against gg otus we can read from gg tax
             if besthit is None:
-                besthit = no_hit        
+                besthit = no_hit
             else:
                 tax = gg_tax.get(besthit.seqid, None)
                 besthit = besthit._replace(tax=tax)
 
             fhout.write("{}\t{}\t{}\t{}\t{}\n".format(
-                    s_id, abundance, besthit.seqid, besthit.pwid,
-                    '\t'.join(["{}:{}".format(k, v) for (k, v) in besthit.tax.items()])))
+                s_id, abundance, besthit.seqid, besthit.pwid,
+                '\t'.join(["{}:{}".format(k, v) for (k, v) in besthit.tax.items()])))
     if fhout != sys.stdout:
         fhout.close()
 
