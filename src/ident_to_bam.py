@@ -50,13 +50,15 @@ def main(sam_fh_in, sam_fh_out, fasta_fh):
     last_tid = -1
     for r in sam_fh_in:
         if r.is_unmapped:
-            ident = 0
+            ident = 0.0
         else:
             if r.tid != last_tid:
                 ref = fasta_fh.fetch(sam_fh_in.getrname(r.tid))
                 last_tid = r.tid
-            ident = calc_ident(r, ref)
- 
+            try:
+                ident = calc_ident(r, ref)
+            except AssertionError:
+                raise AssertionError("calc_ident failed for {}".format(sam_fh_in.getrname(r.tid)))
         # NOTE pysam's set_tag inferred value_type 'd' which is
         # undefined according to
         # https://samtools.github.io/hts-specs/SAMv1.pdf

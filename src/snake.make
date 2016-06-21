@@ -97,11 +97,13 @@ rule emirge_trim_primer:
 
 
 rule emirge_vs_gg:
-  input:   rules.emirge_trim_primer.output, ref=config['GG_REF']
+  input:
+        fa=rules.emirge_trim_primer.output,
+	ref=config['GG_REF']
   #output: 'greengenes-hits-blast.csv'
   output:  'greengenes-hits-graphmap.bam'
   threads: 8
-  shell:  '{config[GRAPHMAP]} -x illumina -t {threads} -r {input.ref} -d {input} | {config[IDENT_TO_BAM]}  - {output} {input.ref}'
+  shell:  '{config[GRAPHMAP]} -t {threads} -r {input.ref} -d {input.fa} | {config[IDENT_TO_BAM]}  - {output} {input.ref}'
 
 
 rule classify:

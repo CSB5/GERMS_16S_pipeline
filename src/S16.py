@@ -85,7 +85,8 @@ CONF['IDENT_TO_BAM'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "ident_to_bam.py"))
 CONF['PLOT_RAREFACTION'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "plot_rarefaction.py"))
-CONF['GRAPHMAP'] = '/mnt/software/stow/graphmap-0.2.2-dev-604a386/bin/graphmap'
+#CONF['GRAPHMAP'] = '/mnt/software/stow/graphmap-0.2.2-dev-604a386/bin/graphmap'
+CONF['GRAPHMAP'] = '/mnt/software/stow/graphmap-0.3.0-1d16f07/bin/graphmap'
 CONF['BWA'] = '/mnt/software/stow/bwa-0.7.12/bin/bwa'
 #CONF['BLASTN'] = '/mnt/software/stow/ncbi-blast-2.2.28+/bin/blastn'
 CONF['CONVERT_TABLE'] = os.path.abspath(
