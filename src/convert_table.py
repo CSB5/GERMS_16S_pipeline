@@ -91,7 +91,7 @@ def main(raw_table, outprefix):
             for name, abd in sorted(v.items(), key=lambda x: x[1], reverse=True):
                 sizes.append(abd*100)
                 labels.append(name)
-                fh.write("{}\t{:.4f}\n".format(name, abd))
+                fh.write("{}\t{:f}\n".format(name, abd))
 
         # http://matplotlib.org/examples/pie_and_polar_charts/pie_demo_features.html
         plt.pie(sizes, labels=labels, autopct='%1.4f%%', shadow=True, startangle=90)
